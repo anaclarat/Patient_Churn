@@ -1,0 +1,1269 @@
+---
+title: "Project for R Course <br> Data Science and Application Advanced Diploma <br> Metro College"
+author: "Ana Clara Tupinambá Freitas, oriented by Professor Hamid Rajaee"
+date: "5/24/2021"
+output:   
+  pdf_document: default
+  #slidy_document: slidy_presentation
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Methodology
+
+* Business understanding;
+
+* EDA:
+
+  + Univariate analysis; and
+        
+  + Bivariate analysis.
+  
+  
+  
+```{r packages, include=FALSE}
+# install.packages(dplyr)
+# install.packages(ggplot2)
+# install.packages("stringr")
+# install.packages("data.table")
+# install.packages(lubridate)
+# install.packages(MASS)
+# install.packages("vioplot")
+# install.packages("psych")
+# install.packages("doBy")
+# install.packages("rstatix")
+# install.packages("coin")
+
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(data.table) #row.names to column
+library(lubridate)
+library(MASS)
+library(knitr)
+library(ggplot2)
+library(vioplot)
+library(vcd)
+library(psych)#pairs.panel
+library(doBy)
+library(rstatix) #welch anova
+library(coin)#independence test asymptotic
+```  
+
+# Introduction
+
+**What is Churn?**
+
+Churn is a measurement of the percentage of accounts that cancel or choose not to renew their subscriptions. A high churn rate can negatively impact Monthly Recurring Revenue (MRR) and can also indicate dissatisfaction with a product or service.
+
+
+$Churn = \frac{CustomersLostInaPperiod}{CustomersAttheBeginningOfaPeriod}$
+
+This project will treat churn related to patients of a diverse set of practices clinics. 
+
+<br>
+<br>
+<br>
+<br>
+Source: https://www.productplan.com/glossary/churn/
+
+# Methodology
+
+This project will perform EDA and make presumptions about the data since contact to subject matter experts was not possible at this moment. 
+
+The goal is the creation of a model to predict churn of patients. 
+
+# Loading Data 
+
+```{r Setting_working_dir,cache=TRUE}
+setwd("D:\\1_Metro College\\Courses\\R\\Project\\Final_Project\\Project 2") 
+```
+
+
+```{r Loading_Data,cache=TRUE}
+
+# file to be analysed
+f <- "D:\\1_Metro College\\Courses\\R\\Project\\Final_Project\\Project 2\\Ana_Clara_Train_Patient_Churn.csv" 
+
+#Loading data frame
+data <- read.csv(f)
+
+rm(f)
+```
+
+ **First Look at Data:**
+```{r}
+#converting Null to Na
+data[data=='']<-NA 
+
+#copy of data
+data_before_removing_NA <- data
+```
+
+Shape of data:
+```{r}
+dim(data)
+```
+
+Features: 
+```{r}
+colnames(data)
+```
+
+Data Structure:
+We can see that the only numeric features, at this moment, are: patient_id(categorical) and age.
+```{r}
+str(data)
+glimpse(data)#better visual dplyr
+```
+
+First 3 observations:
+```{r}
+head(data,3) 
+```
+
+Last 3 observations:
+```{r}
+tail(data,3) 
+```
+
+Summary:
+```{r}
+summary(data)
+```
+
+
+```{r}
+#Duplicated value?
+sum(duplicated(data))
+```
+
+Range, minimum and maximum values of numeric features of data frame (data) :
+```{r}
+# What are the numeric features?
+v1 <- which(sapply(data,is.numeric)) 
+
+#Returning desired values:
+l_range <-c()
+for (i in v1) {
+       t<-  (paste('The range of <',names(data)[i], '> is: ',  
+                    range(data[,i],na.rm = T)[2] - range(data[,i],na.rm = T)[1],
+              'and its minimum and maximum values are:',paste(
+              range(data[,i],na.rm = T),collapse = " & ")
+              ))
+        l_range <- c(l_range,t)
+       
+}
+ print(l_range)
+```
+
+ **Is there NAs in data frame? What's its percentage in each feature?**
+ 
+ We can see that there are many more NAs in procedure description than in procedure code,
+ both will be merged to create a new combined feature.
+ 
+```{r}
+sum_NA <- function(x){
+        n <- ncol(x)
+        l <- names(x)
+        l1 <- c()
+        l2 <- c()
+        for (i in 1:n){
+                l1[i] <- sum(is.na(x[,i]))
+                l2[i] <- paste(round(l1[i]/nrow(x)*100),'%')
+        }
+        print(data.frame( Names = l,
+                          Total_of_NAs=l1,
+                          Prop.NAs=l2)
+        )
+}
+sum_NA(data)
+```
+
+There is a greater number of NAs for:
+
+  + primary_insurance_company_id;
+    
+  + secondary_insurance_company_id;
+    
+  + patient_referral; and 
+    
+  + other_referral. 
+
+
+These features will be converted to binary:
+
+* If there is a value:Yes;
+
+* If don't: No.
+
+And renamed: 
+
+  + primary_insurance_company_id: primary_insurance;
+    
+  + secondary_insurance_company_id: secondary_insurance
+
+
+```{r}
+
+data$primary_insurance_company_id <- ifelse(!is.na(data$primary_insurance_company_id),"YES","NO")
+names(data)[6] <- "primary_insurance"
+
+data$secondary_insurance_company_id <- ifelse(!is.na(data$secondary_insurance_company_id),"YES","NO")
+names(data)[7] <- "secondary_insurance"
+
+data$patient_referral <- ifelse(!is.na(data$patient_referral),"YES","NO")
+
+data$other_referral <- ifelse(!is.na(data$other_referral),"YES","NO")
+
+sum_NA(data)
+```
+
+Since `r round((nrow(na.omit(data))*100)/nrow(data),2)`% of data will be preserved and features don't have more NAs with more than 1% participation within group, NAs will be dropped.
+```{r}
+data <- na.omit(data)
+
+data_after_removing_NA <- data
+```
+
+# **Features**
+
+<img src="https://live.staticflickr.com/3045/2920562020_c5f09e510f_b.jpg"/>
+
+# **What practice_id presents ?**
+
+First 3 and last 3 observations:
+```{r practice_id}
+head(data$practice_id,3);tail(data$practice_id,3)
+
+#converting to factor:
+data$practice_id <- factor(data$practice_id)
+
+kable(table(data$practice_id,dnn = "practice_id"),caption = "Frequency")
+
+ggplot(data)+
+  geom_bar(mapping=aes(practice_id,fill="Practice_id"))+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(title = "Frequency of Practice ID",x="",y="",fill="")+
+  theme(axis.text.x=element_text(angle=90,hjust=1))
+
+```
+
+# **What patient_id presents ?**
+
+First 3 and last 3 observations:
+```{r practiceid,cache=TRUE}
+head(data$patient_id,3);tail(data$patient_id,3)
+
+#converting to factor:
+data$patient_id <- factor(data$patient_id)
+```
+
+**Is patient_id unique?**
+
+First observations:
+
+```{r Unique_ID,echo=FALSE}
+head(data$patient_id)
+
+kable(head(table(data$patient_id,dnn = "patient_id")),caption = "Frequency")
+
+dupli <- sum(duplicated(data['patient_id']))
+if (dupli == 0 ) {
+        print("There are no duplicated values as should with patient_id feature.")
+} else
+        { print(paste("There are ",dupli," duplicated values in patient_id."))
+                }
+```
+
+```{r,cache=TRUE}
+# Generating plot
+g_p_id <- ggplot(data)+
+  geom_bar(mapping = aes(patient_id))+
+  theme_classic()+
+  labs(title = "Frequency of Patient ID",x="",y="",fill="",subtitle = "Zooming on First observations")
+
+#Zooming Without clipping
+g_p_id1 <- g_p_id + 
+  coord_cartesian(xlim = c(0, 10), ylim = c(0, 4))
+
+#g_p_id1
+
+```
+
+A further look at the first observations, gives us some insights that patient id may be indeed insurance holder, since there are at least different genders, ages and zip for the same patient id. 
+```{r,echo=FALSE}
+# grouping by 
+library(doBy)
+data <- data %>% 
+  group_by(patient_id) 
+
+#Looking 
+head(arrange(data,patient_id),10)
+```
+```{r,echo=FALSE,include=FALSE}
+ungroup(data)
+```
+
+
+# **What gender presents ?**
+
+First 3 and last 3 observations:
+```{r gender,cache=TRUE}
+head(data$gender,3);tail(data$gender,3)
+```
+
+What are the unique values?
+
+We see that there are different values that can be made to one:
+
+```{r warning=FALSE}
+print(paste("Before transformation:",paste(unique(data$gender),collapse = ", ")))
+
+data$gender <- case_when(
+  data$gender == "F" ~ "Female",
+  data$gender == "M" ~ "Male",
+  data$gender == "U" ~ "Unknown",
+  TRUE ~ data$gender
+)
+
+#converting to factor:
+data$gender <- factor(data$gender)
+
+print(paste("After transformation:",paste(unique(data$gender),collapse = ", ")))
+
+kable(table(data$gender,dnn = "gender"),caption = "Frequency")
+
+ggplot(data)+
+  geom_bar(mapping = aes(gender,fill=gender))+
+  scale_fill_brewer(palette = "green")+
+  theme_classic()+
+  labs(title = "Frequency of Gender",x="",y="",fill="Gender")
+
+
+data_after_gender <- data
+```
+
+We see that the number of observations of unknown gender are very, small. These observations will be dropped.
+
+```{r}
+d <- which(data$gender=="Unknown")
+data <- data[-d,]
+data$gender <- factor(as.character(data$gender))
+```
+
+
+
+# **What age presents ?**
+
+First 3 and last 3 observations:
+```{r age,cache=TRUE}
+head(data$age,3);tail(data$age,3)
+```
+
+Summary:
+```{r}
+summary(data$age)
+```
+
+```{r mode}
+#Function to return mode and its occurrence
+
+#tabulate takes the integer-valued vector bin and counts the number of times 
+ #each integer occurs in it.
+getmode <- function(v) {
+   uniqv <- unique(v)
+   val <- uniqv[which.max(tabulate(match(v, uniqv)))]
+   val_count <- sum(v==val)
+   return(c(val,val_count))
+}
+```
+
+The mode of age is `r getmode(data$age)[1]` with `r getmode(data$age)[2]` observations. The total of observations is `r nrow(data)`. We can see that there is an outlier:   
+
+```{r,cache=TRUE}
+#Generating plot
+ggplot(data)+
+  geom_boxplot(mapping = aes(data$age, fill="Age"),outlier.colour="red", outlier.shape=8,
+               outlier.size=2)+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(x="Age",title = "Age",subtitle = "before trimming",fill="")
+```
+
+We see a lot of 120 values in age. These will be replaced by the 5% trimmed mean of age.
+```{r,warning=FALSE}
+kable(tail(addmargins(table(data$age,dnn = "age"))),caption = "Last observations of Frequency")
+
+data[data$age==120,4] <- as.integer(mean(data$age,trim = .05))
+
+#Generating plot
+ggplot(data)+
+  geom_boxplot(mapping = aes(data$age, fill="Age"),outlier.colour="red", outlier.shape=8,
+               outlier.size=2)+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(x="Age",title = "Age",subtitle = "after trimming (5%)",fill="")
+```
+
+# **What zip presents ?**
+
+First 3 and last 3 observations:
+```{r zip,cache=TRUE}
+head(data$zip,3);tail(data$zip,3)
+```
+
+We can see there is some observations with "=" for zip. If there is another row with zip information zip will be replaced. If, not, the row will be dropped:
+```{r,cache=TRUE}
+#Remove spaces to avoid duplicated:
+data$zip <- str_replace_all(data$zip," ","")
+
+kable(head(table(data$zip,dnn = "zip")),caption = "First observations of Frequency")
+
+```
+
+```{r, include=TRUE,echo=TRUE}
+#What rows have zip "="
+data[which(data$zip=="="),] #patient_id: 10709,22681
+
+data[which(data$patient_id==10709),] #just one row
+data <- data[-which(data$patient_id==10709),] #dropping row
+
+data[which(data$patient_id==22681),] #2 rows, second one with zip: "L5B3M1"
+
+data[which(data$zip=="="),"zip"] <- "L5B3M1" #replacing with second value
+```
+
+```{r,cache=TRUE}
+
+#Generating plot
+g_zip <- ggplot(data)+
+  geom_bar(mapping = aes(data$zip))+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()
+
+#Zooming Without clipping
+g_zip1 <- g_zip  + 
+  coord_cartesian(xlim = c(0, 10), ylim = c(0,40))+
+  labs(x="Zip",y="",title = "Frequency of Zip",subtitle = "Zooming on First observations")
+
+# g_zip1 
+
+```
+
+
+# **What primary_insurance presents ?**
+
+First 3 and last 3 observations:
+```{r primary_insurance,cache=TRUE}
+head(data$primary_insurance,3);tail(data$primary_insurance,3)
+```
+
+We can see the majority of observations have at insurance(primary).
+
+```{r}
+
+kable(table(data$primary_insurance,dnn = "primary_insurance"),caption = "Frequency")
+
+#Generating plot
+ggplot(data)+
+  geom_bar(mapping=aes(primary_insurance,fill=primary_insurance))+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(title = "Frequency of Primary Insurance",x="",y="",fill="Primary Insurance")
+
+```
+
+# **What secondary_insurance presents ?**
+
+First 3 and last 3 observations:
+```{r secondary_insurance,cache=TRUE}
+head(data$secondary_insurance,3);tail(data$secondary_insurance,3)
+```
+
+We can see the majority of observations have don't have a secondary insurance.
+
+```{r}
+
+kable(table(data$secondary_insurance,dnn = "secondary_insurance"),caption = "Frequency")
+
+#Generating plot
+ggplot(data)+
+  geom_bar(mapping=aes(secondary_insurance,fill=secondary_insurance))+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(title = "Frequency of Secondary Insurance",x="",y="",fill="Secondary Insurance")
+
+```
+
+# **What other_referral presents ?**
+
+First 3 and last 3 observations:
+```{r other_referral,cache=TRUE}
+head(data$other_referral,3);tail(data$other_referral,3)
+```
+
+```{r}
+
+kable(table(data$other_referral,dnn = "other_referral"),caption = "Frequency")
+
+#Generating plot
+ggplot(data)+
+  geom_bar(mapping=aes(other_referral,fill=other_referral))+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(title = "Frequency of Other Referral",x="",y="",fill="Other Referral")
+
+```
+
+# **What FirstVisit presents ?**
+
+First 3 and last 3 observations:
+```{r FirstVisit,cache=TRUE}
+head(data$FirstVisit,3);tail(data$FirstVisit,3)
+```
+
+We can see a peak of First visits at the beginning of data collection.
+
+```{r}
+data$FirstVisit <- as.Date(data$FirstVisit,format = "%m/%d/%Y")
+head(data$FirstVisit,3);tail(data$FirstVisit,3)
+
+t <- table(data$FirstVisit,dnn = "FirstVisit")
+kable(head(t),caption = "First observations of Frequency")
+t <- as.data.frame(t)
+#Generating plot
+ggplot(t)+
+  geom_line(mapping=aes(x=as.Date(FirstVisit),
+                        y=Freq),color="darkgreen")+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(title = "First Visits",x="",y="")
+```
+
+# **What LastVisit presents ?**
+
+First 3 and last 3 observations:
+```{r LastVisit,cache=TRUE}
+head(data$LastVisit,3);tail(data$LastVisit,3)
+```
+
+We can see a peak of Last visits at the end of data collection.
+
+```{r}
+data$LastVisit <- as.Date(data$LastVisit,format = "%m/%d/%Y")
+head(data$LastVisit,3);tail(data$LastVisit,3)
+t <- table(data$LastVisit,dnn = "LastVisit")
+kable(head(t),caption = "First observations of Frequency")
+t <- as.data.frame(t)
+#Generating plot
+ggplot(t)+
+  geom_line(mapping=aes(x=as.Date(LastVisit),
+                        y=Freq),color="darkgreen")+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(title = "Last Visits",x="",y="")
+```
+
+# **What DaysLastVisit presents ?**
+
+First 3 and last 3 observations:
+```{r DaysLastVisit,cache=TRUE}
+head(data$DaysLastVisit,3);tail(data$DaysLastVisit,3)
+```
+
+We can see that there are 2 formats: date and numeric. Probably due to how data was export.
+Since the data set posses First Visit and Last Visit dates, this feature will be replaced by a calculated one:
+
+$DaysLastVisit = LastVisit - FirstVisit$
+
+```{r}
+data$DaysLastVisit <- as.numeric(difftime(data$LastVisit,data$FirstVisit,units = "days"))
+```
+
+Summary:
+```{r}
+summary(data$DaysLastVisit)
+```
+
+The mode of DaysLastVisit is `r getmode(data$DaysLastVisit)[1]` with `r getmode(data$DaysLastVisit)[2]` observations. With the total of observations being `r nrow(data)`.
+
+This values correspond to `r  round(getmode(data$DaysLastVisit)[2]/nrow(data)*100)`% of observations. These observations will not be dropped before consultation with a subject matter expert.
+ 
+```{r,cache=TRUE}
+#Generating plot
+ggplot(data)+
+  geom_boxplot(mapping = aes(data$DaysLastVisit, fill="Days Last Visit"))+
+  scale_fill_brewer(palette = "Set2")+
+  theme_classic()+
+  labs(x="Days Last Visit",fill="")
+```
+
+
+# **What churn presents ?**
+
+First 3 and last 3 observations:
+```{r churn,cache=TRUE}
+#renaming feature
+names(data)[13] <- "churn"
+
+#Remove spaces to avoid duplicated values due to blank spaces:
+data$churn<- str_replace_all(data$churn," ","")
+
+head(data$churn,3);tail(data$churn,3)
+
+data$churn <- factor(data$churn)
+```
+
+
+```{r,warning=FALSE}
+#converting to factor:
+data$churn <- factor(data$churn)
+
+#frequency table
+kable(table(data$churn),caption = "Frequency")
+
+ggplot(data)+
+  geom_bar(mapping = aes(churn,fill=churn))+
+  scale_fill_brewer(palette = "green")+
+  theme_classic()+
+  labs(title = "Frequency of churn",x="",y="")
+
+#data$churn <- ifelse(data$churn=="YES",1,0)
+
+
+
+```
+
+# **Segmenting by age groups**
+
+The age groups will be divided as following :
+
+* 0-18; 
+* 19-44;
+* 45-64;
+* 65-84; and
+* 85 and over. 
+
+Data source: https://www.cms.gov/Research-Statistics-Data-and-Systems/Statistics-Trends-and-Reports/NationalHealthExpendData/Age-and-Gender
+
+```{r agegroup,echo=TRUE}
+# There is not any age minor to 0 or that is NA
+sum(is.na(data$age)|data$age<0)
+```
+
+After inclusion of feature age_group:
+```{r }
+d1 <- data[,c(1:4)]
+age_gr <- data$age
+d3 <- data[,c(5:13)]
+
+data <- cbind(d1,age_group=age_gr,d3)
+
+data$age_group[data$age <= 18] <-"0-18"
+data$age_group[19 <= data$age & data$age <= 44] <-"19-44"
+data$age_group[45 <= data$age & data$age <= 64] <-"45-64"
+data$age_group[65 <= data$age & data$age <= 84] <-"65-84"
+data$age_group[85 <= data$age & data$age <= 120] <-">85" #120 is the max value as seen before
+
+data$age_group <- factor(data$age_group,
+                         ordered=T, 
+                         levels = c("0-18","19-44","45-64","65-84",">85"))
+
+kable(head(data[,1:6]),caption = "First observations")
+
+```
+We can see that the most frequent age group is 19-44.
+
+```{r,warning=FALSE}
+kable(head(table(data$age_group,dnn = "Age Group"),),caption = "Frequency")
+# Generating plot
+ggplot(data)+
+  geom_bar(mapping = aes(age_group,fill=age_group))+
+  scale_fill_brewer(palette = "green")+
+  theme_classic()+
+  labs(title = "Frequency of Age Group",x="",y="",fill="Age Group")
+
+
+```
+
+# **Creating an ID to identifying patient and renaming patient_id to main_insurance_holder:**
+
+
+```{r,echo=TRUE,include=TRUE}
+#Is there a duplicated value in the data frame?
+sum(duplicated(data))
+```
+
+
+```{r}
+#Since there is not a duplicated value in the data frame, row names will be converted to column to create an ID
+# library(data.table)
+names(data)[2] <- "main_insurance_holder"
+setDT(data,keep.rownames = "patient_id")
+
+data$patient_id <- paste0("p_",data$patient_id)
+
+kable(head(data[,1:8]),caption= "Head of data")
+```
+
+# Which practice have the most and least churn numbers? Is there a relationship between these features?
+
+We can see that D8061 leads both groups.
+
+```{r}
+t = table(data$practice_id,data$churn,dnn = c("Practice ID","Churn"))
+knitr::kable(t)
+t1 <- as.data.frame(t)
+  
+
+t_mean <- t1 %>% group_by(Churn) %>% summarise(t_mean_val=mean(Freq))
+
+ggplot(t1)+
+  geom_col(mapping = aes(x=Practice.ID,y=Freq,fill=Practice.ID))+
+  theme_classic()+
+  facet_grid(cols=vars(Churn))+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+
+   geom_hline(data= t_mean, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')+
+  labs(x="",y="",fill="Practice ID", title = "# of Churns")
+```
+
+**Test of Independence(Chi-Square) - Practice vs Churn (0.05 significance level)**
+
+```{r }
+chisquare_res <-  function(x){ if (x < 0.05) {
+        return("There is a relationship between Practice and Churn")
+        } else {return("There is NOT a relationship between Practice and Churn")}
+}
+```
+
+```{r echo=FALSE}
+test <- chisq.test(t)
+pvalue <- test[3]
+print(test)
+```
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+>**Null hypothesis:  Practice is independent of the Churn**
+
+>If condition of chi-square are satisfied and p-value is less than significant level (5%)
+>reject null hypothesis:
+>There is a relation ship between them at 5% significant level.
+
+
+We can see that `r chisquare_res(pvalue)`, since pvalue is less than `r pvalue`.
+
+# Is there a relationship between main_insurance_holder and churn features?
+
+We can see that appears that there are main insurance holder presents in both churn and non-churn situation:
+```{r}
+t <- table(data$main_insurance_holder,data$churn,dnn = c("Main Insurance Holder","Churn"))
+knitr::kable(head(t),caption = "2-way table(First observations)")
+
+g <- ggplot(data)+
+  geom_count(mapping = aes(main_insurance_holder,y=churn),color="darkgreen")+
+  # scale_fill_brewer(palette = "green")+
+  theme_classic()+
+  labs(title = "Count of Main Insurance Holder per Churn Situation ",x="Main Insurance Holder",y="")
+g
+```
+
+**Test of Independence(Chi-Square) - Main Insurance Holder vs Churn (0.05 significance level)**
+```{r }
+chisquare_res <-  function(x){ if (x < 0.05) {
+        return("There is a relationship between Practice and Churn")
+        } else {return("There is NOT a relationship between Main Insurance Holder and Churn")}
+}
+```
+
+```{r echo=FALSE}
+test <- chisq.test(t)
+pvalue <- test[3]
+print(test)
+```
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+**As seen before the maximum number of observations per Main Insurance Holder is 3 and most of the are at the minimum of 1, so the assumptions are not satisfied.**
+
+
+# Which gender have the most and least churn numbers? Is there a relationship between these features?
+
+We can see that females leads both categories.
+
+```{r}
+t = table(data$gender,data$churn,dnn = c("Gender","Churn"))
+knitr::kable(t)
+t1 <- as.data.frame(t)
+
+t2 <- prop.table(t1$`Days Last Visit`)
+  
+
+t_mean <- t1 %>% group_by(Churn) %>% summarise(t_mean_val=mean(Freq))
+#t_mean1 <- t1$`Days Last Visit`* t2
+
+ggplot(t1)+
+  geom_col(mapping = aes(x=Gender,y=Freq,fill=Gender))+
+  theme_classic()+
+  facet_grid(cols=vars(Churn))+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+
+   geom_hline(data= t_mean, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')+
+     # geom_hline(data= t_mean1, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')+
+  labs(x="",y="",fill="Gender", title = "# of Churns")
+```
+
+**Test of Independence(Chi-Square) - Gender vs Churn (0.05 significance level)**
+
+To satisfy assumptions and perform chi-square test, observations of unknows will be dropped.
+
+```{r }
+chisquare_res <-  function(x){ if (x < 0.05) {
+        return("There is a relationship between Practice and Churn")
+        } else {return("There is NOT a relationship between Gender and Churn")}
+}
+```
+
+```{r echo=FALSE}
+test <- chisq.test(t)
+pvalue <- test[3]
+print(test)
+```
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+>**Null hypothesis:  Gender is independent of the Churn**
+
+>If condition of chi-square are satisfied and p-value is less than significant level (5%)
+>reject null hypothesis:
+>There is a relation ship between them at 5% significant level.
+
+
+We can see that `r chisquare_res(pvalue)`, since pvalue is `r pvalue`.
+
+# Which age group have the most and least churn numbers? Is there a relationship between these features?
+
+We can see that 19-44 age group leads in both categories.
+
+```{r}
+t = table(data$age_group,data$churn,dnn = c("Age Group","Churn"))
+knitr::kable(t)
+t1 <- as.data.frame(t)
+  
+t_mean <- t1 %>% group_by(Churn) %>% summarise(t_mean_val=mean(Freq))
+levels(data$churn)
+ggplot(transform(t,Churn=c("NO","YES")[as.numeric(Churn)]))+
+  geom_col(mapping = aes(x=Age.Group,y=Freq,fill=Age.Group))+
+  theme_classic()+
+  facet_grid(cols=vars(Churn))+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+
+   geom_hline(data= t_mean, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')+
+  labs(x="",y="",fill="Age Group", title = "# of Churns")
+
+```
+
+**Test of Independence(Chi-Square) - Age Group vs Churn (0.05 significance level)**
+
+```{r }
+chisquare_res <-  function(x){ if (x < 0.05) {
+        return("There is a relationship between Practice and Churn")
+        } else {return("There is NOT a relationship between Age Group and Churn")}
+}
+```
+
+```{r echo=FALSE}
+test <- chisq.test(t)
+pvalue <- test[3]
+print(test)
+```
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+>**Null hypothesis:  Age Group is independent of the Churn**
+
+>If condition of chi-square are satisfied and p-value is less than significant level (5%)
+>reject null hypothesis:
+>There is a relation ship between them at 5% significant level.
+
+
+We can see that `r chisquare_res(pvalue)`, since pvalue is `r pvalue`.
+
+# Which zip(location) have the most and least churn numbers? Is there a relationship between these features?
+
+```{r}
+t <- table(data$zip,data$churn,dnn = c("zip","Churn"))
+knitr::kable(head(t,10),caption = "First observations of 2-way table")
+
+t1 <- as.data.frame(t)
+knitr::kable(head(arrange(t1[t1$Churn=="NO",],desc(Freq)),5),caption = "5 zip with least churn numbers")
+knitr::kable(head(arrange(t1[t1$Churn=="YES",],desc(Freq)),5),caption = "5 zip with most churn numbers")
+
+
+
+g <- ggplot(data)+
+  geom_count(mapping = aes(zip,y=churn),color="darkgreen")+
+  # scale_fill_brewer(palette = "green")+
+  theme_classic()+
+  labs(title = "Count of zip per Churn Situation ",x="zip",y="")
+g
+```
+
+**Test of Independence(Chi-Square) - zip vs Churn (0.05 significance level)**
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+We can see that there are many observations with frequency of value 0, not satisfying chi-square assumptions. 
+
+
+# How having insurance impact on churn numbers? Is there a relationship between these features?
+
+We can see that not having insurance leads both groups.
+
+```{r}
+t = table(data$primary_insurance,data$churn,dnn = c("Primary Insurance","Churn"))
+knitr::kable(t)
+t1 <- as.data.frame(t)
+  
+
+t_mean <- t1 %>% group_by(Churn) %>% summarise(t_mean_val=mean(Freq))
+
+ggplot(t1)+
+  geom_col(mapping = aes(x=Primary.Insurance,y=Freq,fill=Primary.Insurance))+
+  theme_classic()+
+  facet_grid(cols=vars(Churn))+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+
+   geom_hline(data= t_mean, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')+
+  labs(x="",y="",fill="Primary Insurance", title = "# of Churns")
+```
+
+**Test of Independence(Chi-Square) - Primary Insurance vs Churn (0.05 significance level)**
+
+
+```{r }
+chisquare_res <-  function(x){ if (x < 0.05) {
+        return("There is a relationship between Primary Insurance and Churn")
+        } else {return("There is NOT a relationship between Primary Insurance and Churn")}
+}
+```
+
+```{r echo=FALSE}
+test <- chisq.test(t)
+pvalue <- test[3]
+print(test)
+```
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+>**Null hypothesis:  Primary Insurance is independent of the Churn**
+
+>If condition of chi-square are satisfied and p-value is less than significant level (5%)
+>reject null hypothesis:
+>There is a relation ship between them at 5% significant level.
+
+
+We can see that **`r chisquare_res(pvalue)`, since pvalue is `r pvalue`.**
+
+# How having a secondary insurance impact on churn numbers? Is there a relationship between these features?
+
+We can see that not having a secondary insurance leads in both categories.
+
+```{r}
+t <-  table(data$secondary_insurance,data$churn,dnn = c("Secondary Insurance","Churn"))
+knitr::kable(t)
+t1 <- as.data.frame(t)
+  
+
+t_mean <- t1 %>% group_by(Churn) %>% summarise(t_mean_val=mean(Freq))
+
+ggplot(t1)+
+  geom_col(mapping = aes(x=Secondary.Insurance,y=Freq,fill=Secondary.Insurance))+
+  theme_classic()+
+  facet_grid(cols=vars(Churn))+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+
+   geom_hline(data= t_mean, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')+
+  labs(x="",y="",fill="Secondary Insurance", title = "# of Churns")
+```
+
+**Test of Independence(Chi-Square) - Secondary Insurance vs Churn (0.05 significance level)**
+
+```{r }
+chisquare_res <-  function(x){ if (x < 0.05) {
+        return("There is a relationship between Secondary Insurance and Churn")
+        } else {return("There is NOT a relationship between Secondary Insurance and Churn")}
+}
+```
+
+```{r echo=FALSE}
+test <- chisq.test(t)
+pvalue <- test[3]
+print(test)
+```
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+>**Null hypothesis:  Secondary Insurance is independent of the Churn**
+
+>If condition of chi-square are satisfied and p-value is less than significant level (5%)
+>reject null hypothesis:
+>There is a relation ship between them at 5% significant level.
+
+
+We can see that **`r chisquare_res(pvalue)`, since pvalue is `r pvalue`.**
+
+# How having been referred impact on churn numbers? Is there a relationship between these features?
+
+We can see that not being referred leads in both categories.
+
+```{r}
+t = table(data$patient_referral,data$churn,dnn = c("Patient Referral","Churn"))
+knitr::kable(t)
+t1 <- as.data.frame(t)
+  
+
+t_mean <- t1 %>% group_by(Churn) %>% summarise(t_mean_val=mean(Freq))
+
+ggplot(t1)+
+  geom_col(mapping = aes(x=Patient.Referral,y=Freq,fill=Patient.Referral))+
+  theme_classic()+
+  facet_grid(cols=vars(Churn))+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+
+   geom_hline(data= t_mean, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')+
+  labs(x="",y="",fill="Patient Referral", title = "# of Churns")
+```
+
+**Test of Independence(Chi-Square) - Patient Referral vs Churn (0.05 significance level)**
+
+```{r }
+chisquare_res <-  function(x){ if (x < 0.05) {
+        return("There is a relationship between Patient Referral and Churn")
+        } else {return("There is NOT a relationship between Patient Referral and Churn")}
+}
+```
+
+```{r echo=FALSE}
+# http://rcompanion.org/handbook/H_09.html
+test <- chisq.test(t)
+pvalue <- test[3]
+print(test)
+```
+
+Assumptions:
+
+1. N, the total frequency, should be reasonably large, say greater than 50;
+2. The sample observations should be independent. No individual item should be included twice or more in the sample;
+3. No expected frequencies should be small. Preferably each expected frequency should be larger than 10 but in any case not less than 5.
+
+>**Null hypothesis:  Patient Referral is independent of the Churn**
+
+>If condition of chi-square are satisfied and p-value is less than significant level (5%)
+>reject null hypothesis:
+>There is a relation ship between them at 5% significant level.
+
+We can see that **`r chisquare_res(pvalue)`, since pvalue is `r pvalue`.**
+
+# How Gender and Age Groups impacts on churn numbers? Is there a relationship between these features?
+
+```{r}
+#d1 <- data
+#data <- d1
+
+t2 <- data%>%
+  group_by(gender,age_group,churn)%>%
+  summarise(Freq=n())
+
+t_mean <- t2 %>% group_by(churn,gender) %>% summarise(t_mean_val=mean(Freq))
+
+
+knitr::kable(t2,caption= "Churn per Gender and Age Group")
+ggplot(t2) + 
+  geom_col(mapping = aes(age_group,Freq,fill=age_group))+
+  #facet_wrap(vars(gender))+
+  theme_classic()+
+  facet_grid(rows= vars(churn),cols = vars(gender))+
+  theme(axis.text.x=element_text(angle=45,hjust=1))+
+  labs(y="",x="",title = "Churn per Gender and Age Group")+
+    geom_hline(data= t_mean, aes(yintercept=t_mean_val), color="red",linetype = 'dotted')#+
+  geom_hline(aes(yintercept=mean(Freq)),linetype="dashed",color="red",show.legend = T)
+```
+
+**Test of Independence(Asymptotic General Independence Test) - Gender and Age Group vs Churn (0.05 significance level)**
+
+We can see that Churn is dependent of Gender and Age Group. 
+```{r}
+#Trying to understand:
+# Testing the independence of two sets of variables measured on arbitrary scales. 
+# The null hypothesis of independence, or conditional independence given block, between y1, ..., yq and x1, ..., xp is tested. 
+# https://rdrr.io/cran/coin/man/IndependenceTest.html
+
+independence_test(churn~age_group|gender,data=t2,weights = ~Freq)
+```
+
+# How much time since last visit impacts on churn numbers? Is there a relationship between these features?
+
+```{r}
+t <- aggregate(data$DaysLastVisit ~ data$churn,data = data,mean)
+names(t) = c("Churn","Days Last Visit")
+knitr::kable(head(t),caption= "Mean of Days Since Last Visit")
+
+t1 <- as.data.frame(t)
+  
+ggplot(data = t,mapping=aes(x=Churn,y=`Days Last Visit`)) +
+  geom_col(fill=cm.colors(length(t$Churn),alpha = 1))+
+  theme_classic()+
+  labs(y="",title = "Average days since Last visit")+
+  theme(axis.text.x=element_text(angle=90,hjust=1))+ 
+  geom_hline(data=t,aes(yintercept=mean(`Days Last Visit`)),linetype="dashed",color="red")
+
+```
+
+**Test of Independence(Chi-Square) - Patient Referral vs Churn (0.05 significance level)**
+
+```{r }
+t_res <-  function(x){ if (x < 0.05) {
+        return("True difference in means between group NO and group YES IS EQUAL to 0")
+        } else {return("True difference in means between group NO and group YES is NOT EQUAL to 0")}
+}
+```
+
+```{r echo=FALSE}
+test <- t.test(DaysLastVisit ~ churn, data=data )
+pvalue <- test$p.value
+print(test)
+```
+
+Assumptions:
+
+1. The first assumption made regarding t-tests concerns the scale of measurement. The assumption for a t-test is that the scale of measurement applied to the data collected follows a continuous or ordinal scale, such as the scores for an IQ test;
+
+2. The second assumption made is that of a simple random sample, that the data is collected from a representative, randomly selected portion of the total population;
+
+3. The third assumption is the data, when plotted, results in a normal distribution, bell-shaped distribution curve. When a normal distribution is assumed, one can specify a level of probability (alpha level, level of significance, p) as a criterion for acceptance. In most cases, a 5% value can be assumed;
+
+4. The fourth assumption is a reasonably large sample size is used. A larger sample size means the distribution of results should approach a normal bell-shaped curve;
+
+5. The final assumption is homogeneity of variance. Homogeneous, or equal, variance exists when the standard deviations of samples are approximately equal.
+
+>If condition of t-test are satisfied and p-value is less than significant level (5%)
+>reject null hypothesis:
+>true difference in means between group NO and group YES is equal to 0
+
+We can see that the **`r t_res(pvalue)`, since pvalue is virtually `r pvalue`.**
+
+<br><br><br>
+Data source: https://www.investopedia.com/ask/answers/073115/what-assumptions-are-made-when-conducting-ttest.asp 
+
+
+# **Is there any association between Days Last Visit, and Age?**  
+
+**Test of Independence - (0.05 significance level)**
+
+Assumptions:
+
+1.level of measurement[^1]; 
+
+2.related pairs[^2]; 
+
+3.absence of outliers[^3]; and  
+
+4.linearity[^4].
+
+Source: https://www.statisticssolutions.com/pearson-correlation-assumptions/ 
+
+<br>
+<br>
+
+[^1]: Level of measurement refers to each variable. For a Pearson correlation, each variable should be continuous.  If one or both of the variables are ordinal in measurement, then a Spearman correlation could be conducted instead.
+
+[^2]: Related pairs refers to the pairs of variables. Each participant or observation should have a pair of values. So if the correlation was between weight and height, then each observation used should have both a weight and a height value.
+
+[^3]: Absence of outliers refers to not having outliers in either variable. Having an outlier can skew the results of the correlation by pulling the line of best fit formed by the correlation too far in one direction or another.  Typically, an outlier is defined as a value that is 3.29 standard deviations from the mean, or a standardized value of less than ±3.29.
+
+[^4]: Linearity refers to the shape of the values formed by the scatterplot. For linearity, a “straight line” relationship between the variable should be formed.  If a line were to be drawn between all the dots going from left to right, the line should be straight and not curved.
+
+<br>
+
+**We can see that due to assumptions not met, results may not be reliable.**
+
+```{r Death_Persons_Injuries,fig.height=10,fig.width=10}
+# plot(data$Death,data$Injuries,
+#      main = "Injuries and Death")
+
+pairs.panels(data[,c("DaysLastVisit","age")],
+             pch=19,
+             method = 'spearman',
+             density = T)
+```
+<br>
+<br>
+Interpretation:
+
+r < 0.25 	No relationship
+
+0.25 < r < 0.5 	Weak relationship
+
+0.5 < r < 0.75 	Moderate relationship
+
+r > 0.75 	Strong relationship
+
+<br>
+
+**Results:** there's no linear correlation between Age and  Days Last Visit.
+
+
+# **Conclusion** 
+
+1. Almost all features have relationship with the target.
+
+# **Recommendations**
+
+1. Perform targeted marketing related to each of the the feature, e.g: age_group, gender.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
